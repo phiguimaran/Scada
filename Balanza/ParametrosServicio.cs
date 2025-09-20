@@ -37,20 +37,5 @@ namespace Balanza
             StableMs = configuration.GetValue<int?>("stableMs") ?? StableMs;
             Endian = configuration.GetValue<string>("endian") ?? Endian;
         }
-
-        public bool Validar(RotatingLogger logger)
-        {
-            if (string.IsNullOrEmpty(ConnString))
-            {
-                logger.Log("Cadena de conexión no especificada.");
-                return false;
-            }
-            if (MaxReintentos < 0 || IntervaloReintentoConexionBD <= 0 || IntervaloSupervisionTareas <= 0 || MaxLogMB <= 0)
-            {
-                logger.Log("Parámetros numéricos inválidos.");
-                return false;
-            }
-            return true;
-        }
     }
 }
