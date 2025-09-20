@@ -10,8 +10,6 @@ namespace Balanza
         public Task TaskRef { get; set; }
         public CancellationTokenSource TokenSource { get; set; }
         public string UltimoError { get; set; }
-        public string UltimoErrorAnterior { get; set; }
-
         // ---- NUEVO: estado de pesaje (máquina de estados por datalogger) ----
         // "WaitingZero" | "WaitingRise" | "Stabilizing"
         public string EstadoPesaje { get; set; } = "WaitingZero";
