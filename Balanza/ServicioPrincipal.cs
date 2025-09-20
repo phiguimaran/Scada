@@ -6,16 +6,28 @@ namespace Balanza
 {
     public class ServicioPrincipal : BackgroundService
     {
-        private readonly MonitorConexionSQL _monitor;
+        private readonly MonitorConexionSQL monitor;
+        private readonly RotatingLogger logger;
+        private readonly ParametrosServicio parametros;
 
-        public ServicioPrincipal(MonitorConexionSQL monitor)
+        public ServicioPrincipal(MonitorConexionSQL monitor, RotatingLogger logger, ParametrosServicio parametros)
         {
-            _monitor = monitor;
+            this.monitor = monitor;
+            this.logger = logger;
+            this.parametros = parametros;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            await _monitor.IniciarAsync(stoppingToken);
+            logger.LogInfo("ServicioPrincipal iniciado.");
+            if (!parametros.Validar(logger))
+            {
+                logger.LogError("Configuración inválida. Deteniendo servicio.");
+                return;
+            }
+
+            await monitor.IniciarAsync(stoppingToken);
+            logger.LogInfo("ServicioPrincipal detenido.");
         }
     }
 }

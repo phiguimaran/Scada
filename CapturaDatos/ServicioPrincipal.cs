@@ -19,15 +19,15 @@ namespace CapturaDatos
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            logger.Log("ServicioPrincipal iniciado.");
+            logger.LogInfo("ServicioPrincipal iniciado.");
             if (!parametros.Validar(logger))
             {
-                logger.Log("Configuración inválida. Deteniendo servicio.");
+                logger.LogError("Configuración inválida. Deteniendo servicio.");
                 return;
             }
 
             await monitorConexion.IniciarAsync(stoppingToken);
-            logger.Log("ServicioPrincipal detenido.");
+            logger.LogInfo("ServicioPrincipal detenido.");
         }
     }
 }
