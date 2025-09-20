@@ -1,10 +1,8 @@
 ﻿using Microsoft.Data.SqlClient;
 using Modbus.Device;
-using Modbus.Extensions.Enron;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
@@ -32,21 +30,22 @@ namespace Balanza
 
         public async Task IniciarAsync(CancellationToken token)
         {
-            var impactoCTS = CancellationTokenSource.CreateLinkedTokenSource(token);
-            var impactoTask = Task.Run(() => CicloImpactoBD(impactoCTS.Token), impactoCTS.Token);
+            using var impactoCTS = CancellationTokenSource.CreateLinkedTokenSource(token);
+            var impactoTask = CicloImpactoBDAsync(impactoCTS.Token);
 
-            int intentos = 0;
-            while (!token.IsCancellationRequested)
+            try
             {
-                try
+                int intentos = 0;
+                while (!token.IsCancellationRequested)
                 {
-                    using var cn = new SqlConnection(parametros.ConnString);
-                    await cn.OpenAsync(token);
-                    logger.Log("Conexión SQL exitosa.");
-                    intentos = 0;
+                    try
+                    {
+                        using var cn = new SqlConnection(parametros.ConnString);
+                        await cn.OpenAsync(token);
+                        logger.Log("Conexión SQL exitosa.");
+                        intentos = 0;
 
-                    // Poblar tareasDict desde la base de datos
-                    string sql = @"
+                        string sql = @"
 SELECT D.id_datalogger, D.ip, D.cantvalores, D.id_modolectura, D.inicio, D.bits AS bitsdatalogger, D.intervalo_lectura,
        V.id_valor, V.posicion, T.id_tipovalor, T.bits AS bitsvalor
 FROM dataloggers D WITH (NOLOCK)
@@ -55,142 +54,160 @@ JOIN tiposvalor T WITH (NOLOCK) ON V.id_tipovalor = T.id_tipovalor
 WHERE D.activo = 1
   AND D.tipo_lectura = @TipoLecturaFilter";
 
-                    var cmd = new SqlCommand(sql, cn);
-                    cmd.Parameters.AddWithValue("@TipoLecturaFilter", this.tipoLecturaFilter);
+                        var cmd = new SqlCommand(sql, cn);
+                        cmd.Parameters.AddWithValue("@TipoLecturaFilter", this.tipoLecturaFilter);
 
-                    var dr = await cmd.ExecuteReaderAsync(token);
-                    var dict = new Dictionary<int, TareaDatalogger>();
-                    while (await dr.ReadAsync(token))
-                    {
-                        int idDL = Convert.ToInt32(dr["id_datalogger"]);
-                        if (!dict.ContainsKey(idDL))
+                        await using var dr = await cmd.ExecuteReaderAsync(token);
+                        var dict = new Dictionary<int, TareaDatalogger>();
+                        while (await dr.ReadAsync(token))
                         {
-                            var tarea = new TareaDatalogger
+                            int idDL = Convert.ToInt32(dr["id_datalogger"]);
+                            if (!dict.ContainsKey(idDL))
                             {
-                                id_datalogger = idDL,
-                                ip = dr["ip"].ToString(),
-                                cantvalores = Convert.ToInt16(dr["cantvalores"]),
-                                id_modolectura = Convert.ToInt16(dr["id_modolectura"]),
-                                inicio = Convert.ToInt16(dr["inicio"]),
-                                bitsdatalogger = Convert.ToInt16(dr["bitsdatalogger"]),
-                                intervalo_lectura = Convert.ToInt32(dr["intervalo_lectura"]),
-                                ListaValores = new List<ValorDatalogger>()
-                            };
-                            dict.Add(idDL, tarea);
+                                var tarea = new TareaDatalogger
+                                {
+                                    id_datalogger = idDL,
+                                    ip = dr["ip"].ToString(),
+                                    cantvalores = Convert.ToInt16(dr["cantvalores"]),
+                                    id_modolectura = Convert.ToInt16(dr["id_modolectura"]),
+                                    inicio = Convert.ToInt16(dr["inicio"]),
+                                    bitsdatalogger = Convert.ToInt16(dr["bitsdatalogger"]),
+                                    intervalo_lectura = Convert.ToInt32(dr["intervalo_lectura"]),
+                                    ListaValores = new List<ValorDatalogger>()
+                                };
+                                dict.Add(idDL, tarea);
+                            }
+                            dict[idDL].ListaValores.Add(new ValorDatalogger
+                            {
+                                id_valor = Convert.ToInt16(dr["id_valor"]),
+                                posicion = Convert.ToInt16(dr["posicion"]),
+                                id_tipovalor = Convert.ToInt16(dr["id_tipovalor"]),
+                                bitsvalor = Convert.ToInt16(dr["bitsvalor"])
+                            });
                         }
-                        dict[idDL].ListaValores.Add(new ValorDatalogger
+
+                        foreach (var kvp in dict)
                         {
-                            id_valor = Convert.ToInt16(dr["id_valor"]),
-                            posicion = Convert.ToInt16(dr["posicion"]),
-                            id_tipovalor = Convert.ToInt16(dr["id_tipovalor"]),
-                            bitsvalor = Convert.ToInt16(dr["bitsvalor"])
-                        });
-                    }
-                    dr.Close();
+                            var tarea = kvp.Value;
+                            tarea.id_valor_peso =
+                                tarea.ListaValores.FirstOrDefault(v => v.bitsvalor == 32)?.id_valor
+                                ?? tarea.ListaValores.FirstOrDefault(v => v.id_tipovalor == 2)?.id_valor
+                                ?? tarea.ListaValores.FirstOrDefault(v => v.id_tipovalor == 1)?.id_valor;
 
-                    // Selección del id_valor_peso por datalogger:
-                    foreach (var kvp in dict)
-                    {
-                        var tarea = kvp.Value;
-                        // Prioridad: bitsvalor==32 (float32) -> id_tipovalor==2 (decimal) -> id_tipovalor==1 (entero)
-                        tarea.id_valor_peso =
-                            tarea.ListaValores.FirstOrDefault(v => v.bitsvalor == 32)?.id_valor
-                            ?? tarea.ListaValores.FirstOrDefault(v => v.id_tipovalor == 2)?.id_valor
-                            ?? tarea.ListaValores.FirstOrDefault(v => v.id_tipovalor == 1)?.id_valor;
+                            if (tarea.id_valor_peso == null)
+                                logger.Log($"[WARN] DL {tarea.id_datalogger}: no se encontró valor 'peso'. Se imprimirá pero no se impactará BD.");
+                        }
 
-                        if (tarea.id_valor_peso == null)
-                            logger.Log($"[WARN] DL {tarea.id_datalogger}: no se encontró valor 'peso'. Se imprimirá pero no se impactará BD.");
-                    }
+                        await CancelarYEsperarTareasAsync(clearDict: true);
 
-                    tareasDict.Clear();
-                    foreach (var kvp in dict)
-                    {
-                        var estadoT = new EstadoTarea
+                        foreach (var kvp in dict)
                         {
-                            Datos = kvp.Value,
-                            Estado = "pendiente",
-                            EstadoPesaje = "WaitingZero",
-                            Armed = false,
-                            TrackedRounded = null,
-                            EstableDesdeUtc = null
-                        };
-                        tareasDict.TryAdd(kvp.Key, estadoT);
-                    }
+                            var estadoT = new EstadoTarea
+                            {
+                                Datos = kvp.Value,
+                                Estado = "pendiente",
+                                EstadoPesaje = "WaitingZero",
+                                Armed = false,
+                                TrackedRounded = null,
+                                EstableDesdeUtc = null
+                            };
 
-                    // Lanzar tareas de lectura
-                    foreach (var kvp in tareasDict)
-                    {
-                        var estadoT = kvp.Value;
-                        if (estadoT.TaskRef == null || estadoT.TaskRef.IsCompleted)
-                        {
+                            tareasDict[kvp.Key] = estadoT;
+
                             estadoT.TokenSource = CancellationTokenSource.CreateLinkedTokenSource(token);
                             var tokenTarea = estadoT.TokenSource.Token;
-                            estadoT.TaskRef = Task.Run(() => BucleTarea(estadoT, tokenTarea), tokenTarea);
+                            estadoT.TaskRef = Task.Run(() => BucleTareaAsync(estadoT, tokenTarea), tokenTarea);
                             estadoT.Estado = "ejecutando";
                         }
-                    }
 
-                    while (!token.IsCancellationRequested && cn.State == System.Data.ConnectionState.Open)
-                    {
-                        try
+                        while (!token.IsCancellationRequested && cn.State == System.Data.ConnectionState.Open)
                         {
-                            await Task.Delay(parametros.IntervaloSupervisionTareas, token);
-                        }
-                        catch (TaskCanceledException)
-                        {
-                            logger.Log("Ciclo principal cancelado (detención de servicio o apagado manual).");
-                            return;
+                            try
+                            {
+                                await Task.Delay(parametros.IntervaloSupervisionTareas, token);
+                            }
+                            catch (TaskCanceledException)
+                            {
+                                logger.Log("Ciclo principal cancelado (detención de servicio o apagado manual).");
+                                return;
+                            }
                         }
                     }
-                }
-                catch (TaskCanceledException tcex)
-                {
-                    logger.Log("Ciclo cancelado por token de cancelación: " + tcex.Message);
-                    break;
-                }
-                catch (SqlException sqlex)
-                {
-                    logger.Log($"Error de conexión SQL: {sqlex.Message} | Código: {sqlex.Number}");
-                    intentos++;
-                    foreach (var par in tareasDict)
+                    catch (TaskCanceledException tcex)
                     {
-                        try { par.Value.TokenSource?.Cancel(); } catch { }
-                        par.Value.Estado = "detenida";
-                    }
-                    if (parametros.MaxReintentos > 0 && intentos >= parametros.MaxReintentos)
-                    {
-                        logger.Log($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
+                        logger.Log("Ciclo cancelado por token de cancelación: " + tcex.Message);
                         break;
                     }
-                    else
+                    catch (SqlException sqlex)
                     {
-                        await Task.Delay(parametros.IntervaloReintentoConexionBD, token);
+                        logger.Log($"Error de conexión SQL: {sqlex.Message} | Código: {sqlex.Number}");
+                        intentos++;
+                        await CancelarYEsperarTareasAsync(clearDict: true);
+                        if (parametros.MaxReintentos > 0 && intentos >= parametros.MaxReintentos)
+                        {
+                            logger.Log($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
+                            break;
+                        }
+                        else
+                        {
+                            try
+                            {
+                                await Task.Delay(parametros.IntervaloReintentoConexionBD, token);
+                            }
+                            catch (TaskCanceledException)
+                            {
+                                break;
+                            }
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    logger.Log("Error inesperado en el ciclo de conexión: " + ex.Message + " | Tipo: " + ex.GetType().Name);
-                    intentos++;
-                    foreach (var par in tareasDict)
+                    catch (Exception ex)
                     {
-                        try { par.Value.TokenSource?.Cancel(); } catch { }
-                        par.Value.Estado = "detenida";
-                    }
-                    if (parametros.MaxReintentos > 0 && intentos >= parametros.MaxReintentos)
-                    {
-                        logger.Log($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
-                        break;
-                    }
-                    else
-                    {
-                        await Task.Delay(parametros.IntervaloReintentoConexionBD, token);
+                        logger.Log("Error inesperado en el ciclo de conexión: " + ex.Message + " | Tipo: " + ex.GetType().Name);
+                        intentos++;
+                        await CancelarYEsperarTareasAsync(clearDict: true);
+                        if (parametros.MaxReintentos > 0 && intentos >= parametros.MaxReintentos)
+                        {
+                            logger.Log($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
+                            break;
+                        }
+                        else
+                        {
+                            try
+                            {
+                                await Task.Delay(parametros.IntervaloReintentoConexionBD, token);
+                            }
+                            catch (TaskCanceledException)
+                            {
+                                break;
+                            }
+                        }
                     }
                 }
             }
+            finally
+            {
+                impactoCTS.Cancel();
+                try
+                {
+                    await impactoTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception ex)
+                {
+                    logger.Log("[WARN] CicloImpactoBD finalizó con error: " + ex.Message);
+                }
+
+                await CancelarYEsperarTareasAsync(clearDict: true);
+            }
         }
 
-        private void BucleTarea(EstadoTarea estadoT, CancellationToken token)
+        private async Task BucleTareaAsync(EstadoTarea estadoT, CancellationToken token)
         {
+            ModbusIpMaster master = null;
+            TcpClient tcpClient = null;
+
             try
             {
                 estadoT.Estado = "ejecutando";
@@ -201,8 +218,23 @@ WHERE D.activo = 1
                 {
                     try
                     {
+                        if (tcpClient == null || !tcpClient.Connected)
+                        {
+                            master?.Dispose();
+                            tcpClient?.Close();
+                            tcpClient?.Dispose();
+
+                            token.ThrowIfCancellationRequested();
+                            tcpClient = new TcpClient();
+                            await tcpClient.ConnectAsync(estadoT.Datos.ip, 502).ConfigureAwait(false);
+                            tcpClient.ReceiveTimeout = intervalo;
+                            tcpClient.SendTimeout = intervalo;
+                            token.ThrowIfCancellationRequested();
+                            master = ModbusIpMaster.CreateIp(tcpClient);
+                        }
+
                         object valorCrudoLeido = LeerValorCrudo(
-                            ip: estadoT.Datos.ip,
+                            master,
                             modoLectura: estadoT.Datos.id_modolectura,
                             offset: estadoT.Datos.inicio,
                             cantidadBits: estadoT.Datos.bitsdatalogger
@@ -234,7 +266,6 @@ WHERE D.activo = 1
 
                                 foreach (var valor in estadoT.Datos.ListaValores)
                                 {
-                                    // ---- NUEVO: si es float32 por bits, parsear 2 registros como float (endianness desde config) ----
                                     if (valor.bitsvalor == 32)
                                     {
                                         if (registroIdx + 1 < reg.Length)
@@ -242,12 +273,12 @@ WHERE D.activo = 1
                                             ushort hi = reg[registroIdx];
                                             ushort lo = reg[registroIdx + 1];
                                             float f = ToFloat(hi, lo, parametros.Endian);
-                                            valor.ValorActual = (double)f; // guardamos como double
+                                            valor.ValorActual = (double)f;
                                         }
                                         else
                                         {
                                             valor.ValorActual = null;
-                                            logger.Log($"[WARN] float32 fuera de rango: idx={registroIdx}, len={reg.Length} (DL {estadoT.Datos.id_datalogger})");
+                                            logger.Log($"[WARN] float32 fuera de rango: idx={registroIdx}, len={reg.Length} (DL{estadoT.Datos.id_datalogger})");
                                         }
                                         registroIdx += 2;
                                         bitEnRegistro = 0;
@@ -256,7 +287,7 @@ WHERE D.activo = 1
 
                                     switch (valor.id_tipovalor)
                                     {
-                                        case 1: // Entero (ushort)
+                                        case 1:
                                             if (registroIdx < reg.Length)
                                             {
                                                 valor.ValorActual = reg[registroIdx];
@@ -270,7 +301,7 @@ WHERE D.activo = 1
                                             bitEnRegistro = 0;
                                             break;
 
-                                        case 2: // Decimal (short con 1 decimal)
+                                        case 2:
                                             if (registroIdx < reg.Length)
                                             {
                                                 short signedValue = unchecked((short)reg[registroIdx]);
@@ -285,7 +316,7 @@ WHERE D.activo = 1
                                             bitEnRegistro = 0;
                                             break;
 
-                                        case 5: // Bit
+                                        case 5:
                                             if (registroIdx < reg.Length)
                                             {
                                                 valor.ValorActual = ((reg[registroIdx] & (1 << bitEnRegistro)) != 0);
@@ -304,14 +335,12 @@ WHERE D.activo = 1
                                             break;
 
                                         default:
-                                            // Otros tipos no soportados
                                             valor.ValorActual = null;
                                             logger.Log($"[WARN] Tipo de valor no soportado: id_tipovalor={valor.id_tipovalor}, posicion={valor.posicion}");
                                             break;
                                     }
                                 }
-                                // No marcamos "PendienteDeImpacto" global: el impacto lo gatilla la lógica de pesaje
-                                estadoT.Datos.PendienteDeImpacto = true; // sirve para indicar que hay lectura nueva
+                                estadoT.Datos.PendienteDeImpacto = true;
                             }
                             else
                             {
@@ -321,6 +350,10 @@ WHERE D.activo = 1
 
                         estadoT.UltimoError = "";
                     }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                     catch (Exception exInt)
                     {
                         estadoT.UltimoError = exInt.Message;
@@ -329,7 +362,15 @@ WHERE D.activo = 1
                         estadoT.Estado = "error";
                         break;
                     }
-                    Thread.Sleep(intervalo);
+
+                    try
+                    {
+                        await Task.Delay(intervalo, token).ConfigureAwait(false);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
                 }
             }
             catch (Exception ex)
@@ -341,36 +382,35 @@ WHERE D.activo = 1
             }
             finally
             {
+                master?.Dispose();
+                if (tcpClient != null)
+                {
+                    tcpClient.Close();
+                    tcpClient.Dispose();
+                }
+
                 if (estadoT.Estado != "error")
                     estadoT.Estado = "detenida";
             }
         }
-
-        private object LeerValorCrudo(
-            string ip,
+        private static object LeerValorCrudo(
+            ModbusIpMaster master,
             short modoLectura,
             short offset,
-            short cantidadBits,
-            string puertoSerial = null)
+            short cantidadBits)
         {
-            // cantidadBits está en "bits" a nivel datalogger (p.ej. 32 => 2 registros)
             ushort count = (ushort)Math.Max(1, cantidadBits / 16);
             ushort addr = (ushort)offset;
 
-            using (var client = new TcpClient(ip, 502))
+            return modoLectura switch
             {
-                var master = ModbusIpMaster.CreateIp(client);
-
-                return modoLectura switch
-                {
-                    1 => master.ReadHoldingRegisters(1, addr, count), // FC3
-                    2 => master.ReadInputRegisters(1, addr, count),   // FC4 (inputs)
-                    _ => master.ReadHoldingRegisters(1, addr, count),
-                };
-            }
+                1 => master.ReadHoldingRegisters(1, addr, count),
+                2 => master.ReadInputRegisters(1, addr, count),
+                _ => master.ReadHoldingRegisters(1, addr, count),
+            };
         }
 
-        private void CicloImpactoBD(CancellationToken token)
+        private async Task CicloImpactoBDAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
@@ -378,22 +418,18 @@ WHERE D.activo = 1
                 {
                     foreach (var tarea in tareasDict.Values)
                     {
-                        // Solo procesamos si hubo lectura nueva
                         if (!tarea.Datos.PendienteDeImpacto) continue;
 
-                        // Identificar el valor de PESO:
                         var vPeso = tarea.Datos.id_valor_peso.HasValue
                             ? tarea.Datos.ListaValores.FirstOrDefault(v => v.id_valor == tarea.Datos.id_valor_peso.Value)
                             : null;
 
                         if (vPeso == null)
                         {
-                            // No hay valor de peso configurado -> nada para impactar, solo limpiar flag
                             tarea.Datos.PendienteDeImpacto = false;
                             continue;
                         }
 
-                        // Convertir a double si es posible
                         double? peso = null;
                         if (vPeso.ValorActual is double d) peso = d;
                         else if (vPeso.ValorActual is float f) peso = f;
@@ -407,7 +443,6 @@ WHERE D.activo = 1
                             continue;
                         }
 
-                        // ---- Máquina de estados (por datalogger) ----
                         double abs = Math.Abs(peso.Value);
                         double round2 = Math.Round(peso.Value, 2, MidpointRounding.AwayFromZero);
 
@@ -443,7 +478,6 @@ WHERE D.activo = 1
                                     if (tarea.EstableDesdeUtc.HasValue &&
                                         (DateTime.UtcNow - tarea.EstableDesdeUtc.Value).TotalMilliseconds >= parametros.StableMs)
                                     {
-                                        // ---- Evento: imprimir + impactar BD con calidad=100 ----
                                         string msg = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  [{tarea.Datos.id_datalogger}] PESO={tarea.TrackedRounded:0.00}";
                                         Console.WriteLine(msg);
                                         logger.Log(msg);
@@ -454,8 +488,7 @@ WHERE D.activo = 1
                                             {
                                                 using var cn = new SqlConnection(parametros.ConnString);
                                                 cn.Open();
-                                                using var cmd = new SqlCommand(@"
-UPDATE valores 
+                                                using var cmd = new SqlCommand(@"UPDATE valores
    SET valor_decimal = @valor,
        calidad       = 100,
        [timestamp]   = @ts
@@ -479,7 +512,6 @@ UPDATE valores
                                             }
                                         }
 
-                                        // reiniciar ciclo
                                         tarea.EstadoPesaje = "WaitingZero";
                                         tarea.Armed = false;
                                         tarea.TrackedRounded = null;
@@ -494,16 +526,111 @@ UPDATE valores
                                 break;
                         }
 
-                        // Marcamos que ya procesamos esta tanda
                         tarea.Datos.PendienteDeImpacto = false;
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
                 }
                 catch (Exception ex)
                 {
                     logger.Log("Error en CicloImpactoBD: " + ex.Message);
                 }
 
-                Thread.Sleep(parametros.IntervaloImpactoBD);
+                try
+                {
+                    await Task.Delay(parametros.IntervaloImpactoBD, token).ConfigureAwait(false);
+                }
+                catch (TaskCanceledException)
+                {
+                    break;
+                }
+            }
+        }
+
+        private async Task CancelarYEsperarTareasAsync(bool clearDict)
+        {
+            var snapshot = tareasDict.ToArray();
+            var tareas = new List<Task>();
+
+            foreach (var par in snapshot)
+            {
+                try
+                {
+                    par.Value.TokenSource?.Cancel();
+                }
+                catch
+                {
+                }
+
+                if (par.Value.TaskRef != null)
+                {
+                    tareas.Add(par.Value.TaskRef);
+                }
+            }
+
+            if (tareas.Count > 0)
+            {
+                var completion = Task.WhenAll(tareas);
+                var finished = await Task.WhenAny(completion, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+                if (finished == completion)
+                {
+                    try
+                    {
+                        await completion.ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                    catch (AggregateException agg)
+                    {
+                        foreach (var ex in agg.InnerExceptions)
+                        {
+                            if (ex is OperationCanceledException)
+                            {
+                                continue;
+                            }
+
+                            logger.Log($"[WARN] Error esperando tareas: {ex.GetType().Name} - {ex.Message}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Log($"[WARN] Error esperando tareas: {ex.GetType().Name} - {ex.Message}");
+                    }
+                }
+                else
+                {
+                    _ = completion.ContinueWith(t =>
+                    {
+                        if (t.IsFaulted && t.Exception != null)
+                        {
+                            foreach (var ex in t.Exception.InnerExceptions)
+                            {
+                                if (ex is OperationCanceledException)
+                                {
+                                    continue;
+                                }
+
+                                logger.Log($"[WARN] Error esperando tareas tras timeout: {ex.GetType().Name} - {ex.Message}");
+                            }
+                        }
+                    }, TaskScheduler.Default);
+
+                    logger.Log("[WARN] Tiempo agotado esperando que las tareas de lectura se detengan tras la cancelación.");
+                }
+            }
+
+            foreach (var par in snapshot)
+            {
+                par.Value.TokenSource?.Dispose();
+                par.Value.TokenSource = null;
+            }
+
+            if (clearDict)
+            {
+                tareasDict.Clear();
             }
         }
 

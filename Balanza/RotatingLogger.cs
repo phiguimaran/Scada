@@ -7,6 +7,7 @@ namespace Balanza
     {
         private readonly string logPath;
         private readonly long maxSize;
+        private readonly object syncRoot = new();
 
         public RotatingLogger(ParametrosServicio parametros)
         {
@@ -19,7 +20,7 @@ namespace Balanza
 
         public void Log(string msg)
         {
-            lock (this)
+            lock (syncRoot)
             {
                 var logFile = new FileInfo(logPath);
                 if (logFile.Exists && logFile.Length > maxSize)
