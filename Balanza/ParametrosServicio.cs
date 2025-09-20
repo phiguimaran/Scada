@@ -37,5 +37,28 @@ namespace Balanza
             StableMs = configuration.GetValue<int?>("stableMs") ?? StableMs;
             Endian = configuration.GetValue<string>("endian") ?? Endian;
         }
+
+        public bool Validar(RotatingLogger logger)
+        {
+            if (string.IsNullOrEmpty(ConnString))
+            {
+                logger.LogError("Cadena de conexión no especificada.");
+                return false;
+            }
+
+            if (MaxReintentos < 0 || IntervaloReintentoConexionBD <= 0 || IntervaloSupervisionTareas <= 0 || IntervaloImpactoBD <= 0 || MaxLogMB <= 0)
+            {
+                logger.LogError("Parámetros numéricos inválidos.");
+                return false;
+            }
+
+            if (!RotatingLogger.TryParseVerbosity(NivelLog, out _))
+            {
+                logger.LogError($"NivelLog '{NivelLog}' no es válido. Valores permitidos: '{RotatingLogger.VerbosityDebugName}' o '{RotatingLogger.VerbosityRuntimeName}'.");
+                return false;
+            }
+
+            return true;
+        }
     }
 }

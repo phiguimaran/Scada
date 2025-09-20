@@ -24,8 +24,8 @@ namespace Balanza
             this.logger = logger;
 
             this.tipoLecturaFilter = (parametros?.TipoLecturaFilter > 0) ? parametros.TipoLecturaFilter : 1;
-            this.logger?.Log($"[Cfg] tipo_lectura filtrado = {this.tipoLecturaFilter}");
-            this.logger?.Log($"[Cfg] pesaje: zeroTol={parametros.ZeroTol}, riseMin={parametros.RiseMin}, stableMs={parametros.StableMs}, endian={parametros.Endian}");
+            this.logger?.LogInfo($"[Cfg] tipo_lectura filtrado = {this.tipoLecturaFilter}");
+            this.logger?.LogInfo($"[Cfg] pesaje: zeroTol={parametros.ZeroTol}, riseMin={parametros.RiseMin}, stableMs={parametros.StableMs}, endian={parametros.Endian}");
         }
 
         public async Task IniciarAsync(CancellationToken token)
@@ -42,7 +42,7 @@ namespace Balanza
                     {
                         using var cn = new SqlConnection(parametros.ConnString);
                         await cn.OpenAsync(token);
-                        logger.Log("Conexión SQL exitosa.");
+                        logger.LogInfo("Conexión SQL exitosa.");
                         intentos = 0;
 
                         string sql = @"
@@ -95,7 +95,7 @@ WHERE D.activo = 1
                                 ?? tarea.ListaValores.FirstOrDefault(v => v.id_tipovalor == 1)?.id_valor;
 
                             if (tarea.id_valor_peso == null)
-                                logger.Log($"[WARN] DL {tarea.id_datalogger}: no se encontró valor 'peso'. Se imprimirá pero no se impactará BD.");
+                                logger.LogWarn($"DL {tarea.id_datalogger}: no se encontró valor 'peso'. Se imprimirá pero no se impactará BD.");
                         }
 
                         await CancelarYEsperarTareasAsync(clearDict: true);
@@ -128,24 +128,24 @@ WHERE D.activo = 1
                             }
                             catch (TaskCanceledException)
                             {
-                                logger.Log("Ciclo principal cancelado (detención de servicio o apagado manual).");
+                                logger.LogInfo("Ciclo principal cancelado (detención de servicio o apagado manual).");
                                 return;
                             }
                         }
                     }
                     catch (TaskCanceledException tcex)
                     {
-                        logger.Log("Ciclo cancelado por token de cancelación: " + tcex.Message);
+                        logger.LogInfo("Ciclo cancelado por token de cancelación: " + tcex.Message);
                         break;
                     }
                     catch (SqlException sqlex)
                     {
-                        logger.Log($"Error de conexión SQL: {sqlex.Message} | Código: {sqlex.Number}");
+                        logger.LogError($"Error de conexión SQL: {sqlex.Message} | Código: {sqlex.Number}");
                         intentos++;
                         await CancelarYEsperarTareasAsync(clearDict: true);
                         if (parametros.MaxReintentos > 0 && intentos >= parametros.MaxReintentos)
                         {
-                            logger.Log($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
+                            logger.LogError($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
                             break;
                         }
                         else
@@ -162,12 +162,12 @@ WHERE D.activo = 1
                     }
                     catch (Exception ex)
                     {
-                        logger.Log("Error inesperado en el ciclo de conexión: " + ex.Message + " | Tipo: " + ex.GetType().Name);
+                        logger.LogError("Error inesperado en el ciclo de conexión: " + ex.Message + " | Tipo: " + ex.GetType().Name);
                         intentos++;
                         await CancelarYEsperarTareasAsync(clearDict: true);
                         if (parametros.MaxReintentos > 0 && intentos >= parametros.MaxReintentos)
                         {
-                            logger.Log($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
+                            logger.LogError($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
                             break;
                         }
                         else
@@ -196,7 +196,7 @@ WHERE D.activo = 1
                 }
                 catch (Exception ex)
                 {
-                    logger.Log("[WARN] CicloImpactoBD finalizó con error: " + ex.Message);
+                    logger.LogWarn("CicloImpactoBD finalizó con error: " + ex.Message);
                 }
 
                 await CancelarYEsperarTareasAsync(clearDict: true);
@@ -278,7 +278,7 @@ WHERE D.activo = 1
                                         else
                                         {
                                             valor.ValorActual = null;
-                                            logger.Log($"[WARN] float32 fuera de rango: idx={registroIdx}, len={reg.Length} (DL{estadoT.Datos.id_datalogger})");
+                                            logger.LogWarn($"float32 fuera de rango: idx={registroIdx}, len={reg.Length} (DL{estadoT.Datos.id_datalogger})");
                                         }
                                         registroIdx += 2;
                                         bitEnRegistro = 0;
@@ -295,7 +295,7 @@ WHERE D.activo = 1
                                             else
                                             {
                                                 valor.ValorActual = null;
-                                                logger.Log($"[WARN] Índice fuera de rango para entero: registroIdx={registroIdx}, largo={reg.Length}");
+                                                logger.LogWarn($"Índice fuera de rango para entero: registroIdx={registroIdx}, largo={reg.Length}");
                                             }
                                             registroIdx++;
                                             bitEnRegistro = 0;
@@ -310,7 +310,7 @@ WHERE D.activo = 1
                                             else
                                             {
                                                 valor.ValorActual = null;
-                                                logger.Log($"[WARN] Índice fuera de rango para decimal: registroIdx={registroIdx}, largo={reg.Length}");
+                                                logger.LogWarn($"Índice fuera de rango para decimal: registroIdx={registroIdx}, largo={reg.Length}");
                                             }
                                             registroIdx++;
                                             bitEnRegistro = 0;
@@ -324,7 +324,7 @@ WHERE D.activo = 1
                                             else
                                             {
                                                 valor.ValorActual = null;
-                                                logger.Log($"[WARN] Índice fuera de rango para bit: registroIdx={registroIdx}, largo={reg.Length}");
+                                                logger.LogWarn($"Índice fuera de rango para bit: registroIdx={registroIdx}, largo={reg.Length}");
                                             }
                                             bitEnRegistro++;
                                             if (bitEnRegistro == 16)
@@ -336,7 +336,7 @@ WHERE D.activo = 1
 
                                         default:
                                             valor.ValorActual = null;
-                                            logger.Log($"[WARN] Tipo de valor no soportado: id_tipovalor={valor.id_tipovalor}, posicion={valor.posicion}");
+                                            logger.LogWarn($"Tipo de valor no soportado: id_tipovalor={valor.id_tipovalor}, posicion={valor.posicion}");
                                             break;
                                     }
                                 }
@@ -344,7 +344,7 @@ WHERE D.activo = 1
                             }
                             else
                             {
-                                logger.Log($"[DEBUG] ValorCrudoActual tipo={estadoT.Datos.ValorCrudoActual?.GetType().Name ?? "null"} NO es ushort[]");
+                                logger.LogDebug($"ValorCrudoActual tipo={estadoT.Datos.ValorCrudoActual?.GetType().Name ?? "null"} NO es ushort[]");
                             }
                         }
 
@@ -480,7 +480,7 @@ WHERE D.activo = 1
                                     {
                                         string msg = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  [{tarea.Datos.id_datalogger}] PESO={tarea.TrackedRounded:0.00}";
                                         Console.WriteLine(msg);
-                                        logger.Log(msg);
+                                        logger.LogInfo(msg);
 
                                         if (tarea.Datos.id_valor_peso.HasValue)
                                         {
@@ -504,11 +504,11 @@ WHERE D.activo = 1
                                                 cmd.Parameters.AddWithValue("@id_valor", tarea.Datos.id_valor_peso.Value);
 
                                                 int rows = cmd.ExecuteNonQuery();
-                                                logger.Log($"[Impacto] DL {tarea.Datos.id_datalogger}: id_valor={tarea.Datos.id_valor_peso.Value}, valor={tarea.TrackedRounded:0.00}, filas={rows}");
+                                                logger.LogInfo($"[Impacto] DL {tarea.Datos.id_datalogger}: id_valor={tarea.Datos.id_valor_peso.Value}, valor={tarea.TrackedRounded:0.00}, filas={rows}");
                                             }
                                             catch (Exception exImp)
                                             {
-                                                logger.Log($"[ERROR impacto] DL {tarea.Datos.id_datalogger}: {exImp.GetType().Name} - {exImp.Message}");
+                                                logger.LogError($"Impacto BD fallido para DL {tarea.Datos.id_datalogger}: {exImp.GetType().Name} - {exImp.Message}");
                                             }
                                         }
 
@@ -535,7 +535,7 @@ WHERE D.activo = 1
                 }
                 catch (Exception ex)
                 {
-                    logger.Log("Error en CicloImpactoBD: " + ex.Message);
+                    logger.LogError("Error en CicloImpactoBD: " + ex.Message);
                 }
 
                 try
@@ -592,12 +592,12 @@ WHERE D.activo = 1
                                 continue;
                             }
 
-                            logger.Log($"[WARN] Error esperando tareas: {ex.GetType().Name} - {ex.Message}");
+                            logger.LogWarn($"Error esperando tareas: {ex.GetType().Name} - {ex.Message}");
                         }
                     }
                     catch (Exception ex)
                     {
-                        logger.Log($"[WARN] Error esperando tareas: {ex.GetType().Name} - {ex.Message}");
+                        logger.LogWarn($"Error esperando tareas: {ex.GetType().Name} - {ex.Message}");
                     }
                 }
                 else
@@ -613,12 +613,12 @@ WHERE D.activo = 1
                                     continue;
                                 }
 
-                                logger.Log($"[WARN] Error esperando tareas tras timeout: {ex.GetType().Name} - {ex.Message}");
+                                logger.LogWarn($"Error esperando tareas tras timeout: {ex.GetType().Name} - {ex.Message}");
                             }
                         }
                     }, TaskScheduler.Default);
 
-                    logger.Log("[WARN] Tiempo agotado esperando que las tareas de lectura se detengan tras la cancelación.");
+                    logger.LogWarn("Tiempo agotado esperando que las tareas de lectura se detengan tras la cancelación.");
                 }
             }
 

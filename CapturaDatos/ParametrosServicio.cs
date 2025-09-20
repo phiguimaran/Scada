@@ -28,12 +28,17 @@ namespace CapturaDatos
         {
             if (string.IsNullOrEmpty(ConnString))
             {
-                logger.Log("Cadena de conexión no especificada.");
+                logger.LogError("Cadena de conexión no especificada.");
                 return false;
             }
             if (MaxReintentos < 0 || IntervaloReintentoConexionBD <= 0 || IntervaloSupervisionTareas <= 0 || MaxLogMB <= 0)
             {
-                logger.Log("Parámetros numéricos inválidos.");
+                logger.LogError("Parámetros numéricos inválidos.");
+                return false;
+            }
+            if (!RotatingLogger.TryParseVerbosity(NivelLog, out _))
+            {
+                logger.LogError($"NivelLog '{NivelLog}' no es válido. Valores permitidos: '{RotatingLogger.VerbosityDebugName}' o '{RotatingLogger.VerbosityRuntimeName}'.");
                 return false;
             }
             return true;

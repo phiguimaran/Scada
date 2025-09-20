@@ -36,7 +36,7 @@ namespace CapturaDatos
                 {
                     using var cn = new SqlConnection(parametros.ConnString);
                     await cn.OpenAsync(token);
-                    logger.Log("Conexión SQL exitosa.");
+                    logger.LogInfo("Conexión SQL exitosa.");
                     intentos = 0;
 
                     // Poblar tareasDict desde la base de datos
@@ -110,20 +110,20 @@ namespace CapturaDatos
                         }
                         catch (TaskCanceledException)
                         {
-                            logger.Log("Ciclo principal cancelado (detención de servicio o apagado manual).");
+                            logger.LogInfo("Ciclo principal cancelado (detención de servicio o apagado manual).");
                             return; // Salida limpia, no es error
                         }
                     }
                 }
                 catch (TaskCanceledException tcex)
                 {
-                    logger.Log("Ciclo cancelado por token de cancelación: " + tcex.Message);
+                    logger.LogInfo("Ciclo cancelado por token de cancelación: " + tcex.Message);
                     // Esto ocurre si se cancela el token externo o de la app. No es un error real.
                     break;
                 }
                 catch (SqlException sqlex)
                 {
-                    logger.Log($"Error de conexión SQL: {sqlex.Message} | Código: {sqlex.Number}");
+                    logger.LogError($"Error de conexión SQL: {sqlex.Message} | Código: {sqlex.Number}");
                     intentos++;
                     foreach (var par in tareasDict)
                     {
@@ -132,7 +132,7 @@ namespace CapturaDatos
                     }
                     if (parametros.MaxReintentos > 0 && intentos >= parametros.MaxReintentos)
                     {
-                        logger.Log($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
+                        logger.LogError($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
                         break;
                     }
                     else
@@ -142,7 +142,7 @@ namespace CapturaDatos
                 }
                 catch (Exception ex)
                 {
-                    logger.Log("Error inesperado en el ciclo de conexión: " + ex.Message + " | Tipo: " + ex.GetType().Name);
+                    logger.LogError("Error inesperado en el ciclo de conexión: " + ex.Message + " | Tipo: " + ex.GetType().Name);
                     intentos++;
                     foreach (var par in tareasDict)
                     {
@@ -151,7 +151,7 @@ namespace CapturaDatos
                     }
                     if (parametros.MaxReintentos > 0 && intentos >= parametros.MaxReintentos)
                     {
-                        logger.Log($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
+                        logger.LogError($"No se pudo conectar tras {parametros.MaxReintentos} intentos. Deteniendo servicio.");
                         break;
                     }
                     else
@@ -222,7 +222,7 @@ namespace CapturaDatos
                                         else
                                         {
                                             valor.ValorActual = null;
-                                            logger.Log($"[WARN] DL {estadoT.Datos.id_datalogger}: float32 fuera de rango (pos={pos1}, len={reg.Length})");
+                                            logger.LogWarn($"DL {estadoT.Datos.id_datalogger}: float32 fuera de rango (pos={pos1}, len={reg.Length})");
                                         }
                                         continue;
                                     }
@@ -239,7 +239,7 @@ namespace CapturaDatos
                                                 else
                                                 {
                                                     valor.ValorActual = null;
-                                                    logger.Log($"[WARN] DL {estadoT.Datos.id_datalogger}: entero fuera de rango (pos={pos1}, len={reg.Length})");
+                                                    logger.LogWarn($"DL {estadoT.Datos.id_datalogger}: entero fuera de rango (pos={pos1}, len={reg.Length})");
                                                 }
                                                 break;
                                             }
@@ -255,7 +255,7 @@ namespace CapturaDatos
                                                 else
                                                 {
                                                     valor.ValorActual = null;
-                                                    logger.Log($"[WARN] DL {estadoT.Datos.id_datalogger}: decimal16 fuera de rango (pos={pos1}, len={reg.Length})");
+                                                    logger.LogWarn($"DL {estadoT.Datos.id_datalogger}: decimal16 fuera de rango (pos={pos1}, len={reg.Length})");
                                                 }
                                                 break;
                                             }
@@ -272,14 +272,14 @@ namespace CapturaDatos
                                                 else
                                                 {
                                                     valor.ValorActual = null;
-                                                    logger.Log($"[WARN] DL {estadoT.Datos.id_datalogger}: bit fuera de rango (posBit={pos1}, len={reg.Length})");
+                                                    logger.LogWarn($"DL {estadoT.Datos.id_datalogger}: bit fuera de rango (posBit={pos1}, len={reg.Length})");
                                                 }
                                                 break;
                                             }
 
                                         default:
                                             valor.ValorActual = null;
-                                            logger.Log($"[WARN] Tipo no soportado: id_tipovalor={valor.id_tipovalor}, pos={pos1}");
+                                            logger.LogWarn($"Tipo no soportado: id_tipovalor={valor.id_tipovalor}, pos={pos1}");
                                             break;
                                     }
                                 }
@@ -290,7 +290,7 @@ namespace CapturaDatos
                             else
                             {
                                 // Si no es ushort[], loguea el tipo real
-                                logger.Log($"[DEBUG] ValorCrudoActual tipo={estadoT.Datos.ValorCrudoActual?.GetType().Name ?? "null"} NO es ushort[]");
+                                logger.LogDebug($"ValorCrudoActual tipo={estadoT.Datos.ValorCrudoActual?.GetType().Name ?? "null"} NO es ushort[]");
                             }
                         }
 
@@ -441,7 +441,7 @@ namespace CapturaDatos
                                         break;
 
                                     default:
-                                        logger.Log($"[WARN] Tipo de valor no soportado en impacto BD: id_tipovalor={valor.id_tipovalor}, id_valor={valor.id_valor}");
+                                        logger.LogWarn($"Tipo de valor no soportado en impacto BD: id_tipovalor={valor.id_tipovalor}, id_valor={valor.id_valor}");
                                         continue;
                                 }
 
@@ -469,7 +469,7 @@ namespace CapturaDatos
                 }
                 catch (Exception ex)
                 {
-                    logger.Log("Error en CicloImpactoBD: " + ex.Message);
+                    logger.LogError("Error en CicloImpactoBD: " + ex.Message);
                 }
 
                 Thread.Sleep(parametros.IntervaloImpactoBD);
