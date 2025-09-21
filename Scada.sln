@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36221.1
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CapturaDatos", "CapturaDatos\CapturaDatos.csproj", "{B52F6EF7-C9B3-4DF2-A3DA-4E85783C73AA}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "pesobalanza", "pesobalanza\pesobalanza.csproj", "{81CE8343-9373-7E68-2967-A7ADB7F188EB}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Balanza", "Balanza\Balanza.csproj", "{D133C650-D59D-7225-4298-45F4603903AC}"
@@ -15,10 +13,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{B52F6EF7-C9B3-4DF2-A3DA-4E85783C73AA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B52F6EF7-C9B3-4DF2-A3DA-4E85783C73AA}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B52F6EF7-C9B3-4DF2-A3DA-4E85783C73AA}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B52F6EF7-C9B3-4DF2-A3DA-4E85783C73AA}.Release|Any CPU.Build.0 = Release|Any CPU
 		{81CE8343-9373-7E68-2967-A7ADB7F188EB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{81CE8343-9373-7E68-2967-A7ADB7F188EB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{81CE8343-9373-7E68-2967-A7ADB7F188EB}.Release|Any CPU.ActiveCfg = Release|Any CPU
