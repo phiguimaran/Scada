@@ -241,7 +241,7 @@ WHERE D.activo = 1
                             master = ModbusIpMaster.CreateIp(tcpClient);
                         }
 
-                        ushort count = (ushort)Math.Max(1, estadoT.Datos.bitsdatalogger / 16);
+                        ushort count = CalcularCantidadLectura(estadoT.Datos.id_modolectura, estadoT.Datos.bitsdatalogger);
                         logger?.LogDebug("Leyendo Modbus Unit={Unit} Addr={Addr} Count={Count}", estadoT.Datos.Unit, estadoT.Datos.inicio, count);
 
                         object valorCrudoLeido = LeerValorCrudo(
@@ -249,7 +249,8 @@ WHERE D.activo = 1
                             estadoT.Datos.Unit,
                             modoLectura: estadoT.Datos.id_modolectura,
                             offset: estadoT.Datos.inicio,
-                            cantidadBits: estadoT.Datos.bitsdatalogger
+                            cantidadBits: estadoT.Datos.bitsdatalogger,
+                            logger
                         );
 
                         LecturaCalidadEnum calidadLeida = LecturaCalidadEnum.OK;
@@ -348,6 +349,31 @@ WHERE D.activo = 1
                                 }
                                 estadoT.Datos.PendienteDeImpacto = true;
                             }
+                            else if (estadoT.Datos.ValorCrudoActual is bool[] bits)
+                            {
+                                foreach (var valor in estadoT.Datos.ListaValores)
+                                {
+                                    int bitIndex = valor.posicion - 1;
+                                    if (valor.id_tipovalor == 5)
+                                    {
+                                        if (bitIndex < 0 || bitIndex >= bits.Length)
+                                        {
+                                            valor.ValorActual = null;
+                                            logger.LogWarn($"Bit fuera de rango: posicion={valor.posicion}, len={bits.Length} (id_valor={valor.id_valor}, DL {estadoT.Datos.id_datalogger})");
+                                            continue;
+                                        }
+
+                                        valor.ValorActual = bits[bitIndex];
+                                    }
+                                    else
+                                    {
+                                        logger.LogWarn($"Tipo de valor no soportado para lectura de bool[]: id_tipovalor={valor.id_tipovalor}, posicion={valor.posicion} (DL {estadoT.Datos.id_datalogger})");
+                                        valor.ValorActual = null;
+                                    }
+                                }
+
+                                estadoT.Datos.PendienteDeImpacto = true;
+                            }
                             else
                             {
                                 logger.LogDebug($"ValorCrudoActual tipo={estadoT.Datos.ValorCrudoActual?.GetType().Name ?? "null"} NO es ushort[]");
@@ -399,22 +425,43 @@ WHERE D.activo = 1
                     estadoT.Estado = "detenida";
             }
         }
+        private static ushort CalcularCantidadLectura(short modoLectura, short cantidadBits)
+        {
+            if (modoLectura == 3 || modoLectura == 4)
+            {
+                int bitsSolicitados = Math.Max(1, cantidadBits);
+                return (ushort)bitsSolicitados;
+            }
+
+            return (ushort)Math.Max(1, cantidadBits / 16);
+        }
+
         private static object LeerValorCrudo(
             ModbusIpMaster master,
             byte unit,
             short modoLectura,
             short offset,
-            short cantidadBits)
+            short cantidadBits,
+            RotatingLogger logger)
         {
-            ushort count = (ushort)Math.Max(1, cantidadBits / 16);
+            ushort count = CalcularCantidadLectura(modoLectura, cantidadBits);
             ushort addr = (ushort)offset;
 
-            return modoLectura switch
+            switch (modoLectura)
             {
-                1 => master.ReadHoldingRegisters(unit, addr, count),
-                2 => master.ReadInputRegisters(unit, addr, count),
-                _ => master.ReadHoldingRegisters(unit, addr, count),
-            };
+                case 1:
+                    return master.ReadHoldingRegisters(unit, addr, count);
+                case 2:
+                    return master.ReadInputRegisters(unit, addr, count);
+                case 3:
+                    logger?.LogDebug("Leyendo Modbus FC1 (Read Coils) Unit={Unit} Addr={Addr} Count={Count}", unit, addr, count);
+                    return master.ReadCoils(unit, addr, count);
+                case 4:
+                    logger?.LogDebug("Leyendo Modbus FC2 (Read Inputs) Unit={Unit} Addr={Addr} Count={Count}", unit, addr, count);
+                    return master.ReadInputs(unit, addr, count);
+                default:
+                    return master.ReadHoldingRegisters(unit, addr, count);
+            }
         }
 
         private async Task CicloImpactoBDAsync(CancellationToken token)
