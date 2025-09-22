@@ -284,66 +284,46 @@ WHERE D.activo = 1
                                         continue;
                                     }
 
-                                    if (valor.id_tipovalor == 5)
+                                    int palabrasNecesarias = valor.id_tipovalor switch
                                     {
-                                        int registroIdx = baseIndex;
-                                        if (registroIdx < 0 || registroIdx >= reg.Length)
-                                        {
-                                            valor.ValorActual = null;
-                                            logger.LogWarn($"Bit fuera de rango: registro={registroIdx}, len={reg.Length} (id_valor={valor.id_valor}, DL {estadoT.Datos.id_datalogger})");
-                                            continue;
-                                        }
+                                        1 => 1,
+                                        2 => 1,
+                                        7 => 2,
+                                        _ => 0
+                                    };
 
-                                        int bitOffset = valor.bitsvalor;
-                                        if (bitOffset < 0 || bitOffset > 15)
-                                        {
-                                            valor.ValorActual = null;
-                                            logger.LogWarn($"Offset de bit inválido (bitsvalor={valor.bitsvalor}) para id_valor={valor.id_valor} en DL {estadoT.Datos.id_datalogger}");
-                                            continue;
-                                        }
-
-                                        valor.ValorActual = (reg[registroIdx] & (1 << bitOffset)) != 0;
-                                        continue;
-                                    }
-
-                                    bool esFloat32 = valor.id_tipovalor == 7 || valor.bitsvalor == 32;
-                                    int bitsDeclarados = valor.bitsvalor > 0 ? valor.bitsvalor : (short)(esFloat32 ? 32 : 16);
-                                    int palabrasNecesarias = Math.Max(1, (bitsDeclarados + 15) / 16);
-                                    if (esFloat32)
-                                    {
-                                        palabrasNecesarias = Math.Max(palabrasNecesarias, 2);
-                                    }
-
-                                    if (baseIndex < 0 || baseIndex + palabrasNecesarias > reg.Length)
+                                    if (palabrasNecesarias == 0)
                                     {
                                         valor.ValorActual = null;
-                                        logger.LogWarn($"Posición fuera de rango: posicion={valor.posicion}, palabras={palabrasNecesarias}, len={reg.Length} (id_valor={valor.id_valor}, DL {estadoT.Datos.id_datalogger})");
+                                        logger.LogWarn($"id_tipovalor {valor.id_tipovalor} no soportado para registros; id_valor={valor.id_valor}");
                                         continue;
                                     }
 
-                                    if (esFloat32)
+                                    int lastIndex = baseIndex + palabrasNecesarias - 1;
+                                    if (lastIndex >= reg.Length)
                                     {
-                                        ushort hi = reg[baseIndex];
-                                        ushort lo = reg[baseIndex + 1];
-                                        float f = ToFloat(hi, lo, parametros.Endian);
-                                        valor.ValorActual = (double)f;
+                                        valor.ValorActual = null;
+                                        logger.LogWarn($"No hay suficientes palabras para id_valor={valor.id_valor}: posicion={valor.posicion}, requiere={palabrasNecesarias}, len={reg.Length}");
                                         continue;
                                     }
 
                                     switch (valor.id_tipovalor)
                                     {
                                         case 1:
-                                            valor.ValorActual = reg[baseIndex];
+                                            ushort w0 = reg[baseIndex];
+                                            valor.ValorActual = (int)w0;
                                             break;
 
                                         case 2:
-                                            short signedValue = unchecked((short)reg[baseIndex]);
-                                            valor.ValorActual = Math.Round(signedValue / 10.0, 1);
+                                            short s0 = (short)reg[baseIndex];
+                                            valor.ValorActual = Math.Round(s0 / 10.0, 1);
                                             break;
 
-                                        default:
-                                            valor.ValorActual = null;
-                                            logger.LogWarn($"Tipo de valor no soportado: id_tipovalor={valor.id_tipovalor}, posicion={valor.posicion} (DL {estadoT.Datos.id_datalogger})");
+                                        case 7:
+                                            ushort hi = reg[baseIndex];
+                                            ushort lo = reg[baseIndex + 1];
+                                            float f = ToFloat(hi, lo, parametros.Endian);
+                                            valor.ValorActual = (double)f;
                                             break;
                                     }
                                 }
@@ -353,23 +333,22 @@ WHERE D.activo = 1
                             {
                                 foreach (var valor in estadoT.Datos.ListaValores)
                                 {
-                                    int bitIndex = valor.posicion - 1;
-                                    if (valor.id_tipovalor == 5)
-                                    {
-                                        if (bitIndex < 0 || bitIndex >= bits.Length)
-                                        {
-                                            valor.ValorActual = null;
-                                            logger.LogWarn($"Bit fuera de rango: posicion={valor.posicion}, len={bits.Length} (id_valor={valor.id_valor}, DL {estadoT.Datos.id_datalogger})");
-                                            continue;
-                                        }
+                                    valor.ValorActual = null;
 
-                                        valor.ValorActual = bits[bitIndex];
-                                    }
-                                    else
+                                    int bitIndex = valor.posicion - 1;
+                                    if (bitIndex < 0 || bitIndex >= bits.Length)
                                     {
-                                        logger.LogWarn($"Tipo de valor no soportado para lectura de bool[]: id_tipovalor={valor.id_tipovalor}, posicion={valor.posicion} (DL {estadoT.Datos.id_datalogger})");
-                                        valor.ValorActual = null;
+                                        logger.LogWarn($"Bit fuera de rango: posicion={valor.posicion}, len={bits.Length} (id_valor={valor.id_valor}, DL {estadoT.Datos.id_datalogger})");
+                                        continue;
                                     }
+
+                                    if (valor.id_tipovalor is 1 or 2 or 7)
+                                    {
+                                        logger.LogWarn($"id_tipovalor {valor.id_tipovalor} no soportado con bool[] (FC1/FC2); id_valor={valor.id_valor}");
+                                        continue;
+                                    }
+
+                                    logger.LogWarn($"id_tipovalor {valor.id_tipovalor} no soportado para lectura de bool[]; id_valor={valor.id_valor}");
                                 }
 
                                 estadoT.Datos.PendienteDeImpacto = true;
