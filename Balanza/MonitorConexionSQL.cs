@@ -228,9 +228,12 @@ WHERE D.activo = 1
 
                             token.ThrowIfCancellationRequested();
                             tcpClient = new TcpClient();
-                            await tcpClient.ConnectAsync(estadoT.Datos.ip, 502).ConfigureAwait(false);
-                            tcpClient.ReceiveTimeout = intervalo;
-                            tcpClient.SendTimeout = intervalo;
+                            var ip = estadoT.Datos.ip;
+                            const int puertoModbus = 502;
+                            logger?.LogDebug($"Abriendo TCP a {ip}:{puertoModbus} con TimeoutMs={parametros.TimeoutMs}");
+                            await tcpClient.ConnectAsync(ip, puertoModbus).ConfigureAwait(false);
+                            tcpClient.ReceiveTimeout = parametros.TimeoutMs;
+                            tcpClient.SendTimeout = parametros.TimeoutMs;
                             token.ThrowIfCancellationRequested();
                             master = ModbusIpMaster.CreateIp(tcpClient);
                         }

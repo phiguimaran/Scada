@@ -12,6 +12,7 @@ namespace Balanza
         public int MaxLogMB { get; set; }
         public string NivelLog { get; set; }
         public int TipoLecturaFilter { get; set; } = 1;
+        public int TimeoutMs { get; set; } = 2000;
 
         // NUEVO: umbrales/endian desde raíz (para lógica de pesaje y float32)
         public double ZeroTol { get; set; } = 0.05;
@@ -30,6 +31,7 @@ namespace Balanza
             MaxLogMB = section.GetValue<int>("MaxLogSizeMB");
             NivelLog = section.GetValue<string>("NivelLog");
             TipoLecturaFilter = section.GetValue<int>("TipoLecturaFilter", 1);
+            TimeoutMs = section.GetValue<int?>("TimeoutMs") ?? TimeoutMs;
 
             // raíz
             ZeroTol = configuration.GetValue<double?>("zeroTol") ?? ZeroTol;
@@ -50,6 +52,12 @@ namespace Balanza
             {
                 logger.LogError("Parámetros numéricos inválidos.");
                 return false;
+            }
+
+            if (TimeoutMs <= 0)
+            {
+                TimeoutMs = 2000;
+                logger?.LogWarn("ParametrosServicio.TimeoutMs inválido; usando 2000 ms por defecto.");
             }
 
             if (!RotatingLogger.TryParseVerbosity(NivelLog, out _))
