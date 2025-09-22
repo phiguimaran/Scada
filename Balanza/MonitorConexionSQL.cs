@@ -89,8 +89,10 @@ WHERE D.activo = 1
                         foreach (var kvp in dict)
                         {
                             var tarea = kvp.Value;
+                            tarea.ListaValores.Sort((a, b) => a.posicion.CompareTo(b.posicion));
                             tarea.id_valor_peso =
-                                tarea.ListaValores.FirstOrDefault(v => v.bitsvalor == 32)?.id_valor
+                                tarea.ListaValores.FirstOrDefault(v => v.id_tipovalor == 7)?.id_valor
+                                ?? tarea.ListaValores.FirstOrDefault(v => v.bitsvalor == 32)?.id_valor
                                 ?? tarea.ListaValores.FirstOrDefault(v => v.id_tipovalor == 2)?.id_valor
                                 ?? tarea.ListaValores.FirstOrDefault(v => v.id_tipovalor == 1)?.id_valor;
 
@@ -261,82 +263,76 @@ WHERE D.activo = 1
                         {
                             if (estadoT.Datos.ValorCrudoActual is ushort[] reg)
                             {
-                                int registroIdx = 0;
-                                int bitEnRegistro = 0;
-
                                 foreach (var valor in estadoT.Datos.ListaValores)
                                 {
-                                    if (valor.bitsvalor == 32)
+                                    int baseIndex = valor.posicion - 1;
+                                    if (baseIndex < 0)
                                     {
-                                        if (registroIdx + 1 < reg.Length)
-                                        {
-                                            ushort hi = reg[registroIdx];
-                                            ushort lo = reg[registroIdx + 1];
-                                            float f = ToFloat(hi, lo, parametros.Endian);
-                                            valor.ValorActual = (double)f;
-                                        }
-                                        else
+                                        valor.ValorActual = null;
+                                        logger.LogWarn($"Posición inválida (id_valor={valor.id_valor}, posicion={valor.posicion}) para DL {estadoT.Datos.id_datalogger}");
+                                        continue;
+                                    }
+
+                                    if (valor.id_tipovalor == 5)
+                                    {
+                                        int registroIdx = baseIndex;
+                                        if (registroIdx < 0 || registroIdx >= reg.Length)
                                         {
                                             valor.ValorActual = null;
-                                            logger.LogWarn($"float32 fuera de rango: idx={registroIdx}, len={reg.Length} (DL{estadoT.Datos.id_datalogger})");
+                                            logger.LogWarn($"Bit fuera de rango: registro={registroIdx}, len={reg.Length} (id_valor={valor.id_valor}, DL {estadoT.Datos.id_datalogger})");
+                                            continue;
                                         }
-                                        registroIdx += 2;
-                                        bitEnRegistro = 0;
+
+                                        int bitOffset = valor.bitsvalor;
+                                        if (bitOffset < 0 || bitOffset > 15)
+                                        {
+                                            valor.ValorActual = null;
+                                            logger.LogWarn($"Offset de bit inválido (bitsvalor={valor.bitsvalor}) para id_valor={valor.id_valor} en DL {estadoT.Datos.id_datalogger}");
+                                            continue;
+                                        }
+
+                                        valor.ValorActual = (reg[registroIdx] & (1 << bitOffset)) != 0;
+                                        continue;
+                                    }
+
+                                    bool esFloat32 = valor.id_tipovalor == 7 || valor.bitsvalor == 32;
+                                    int bitsDeclarados = valor.bitsvalor > 0 ? valor.bitsvalor : (short)(esFloat32 ? 32 : 16);
+                                    int palabrasNecesarias = Math.Max(1, (bitsDeclarados + 15) / 16);
+                                    if (esFloat32)
+                                    {
+                                        palabrasNecesarias = Math.Max(palabrasNecesarias, 2);
+                                    }
+
+                                    if (baseIndex < 0 || baseIndex + palabrasNecesarias > reg.Length)
+                                    {
+                                        valor.ValorActual = null;
+                                        logger.LogWarn($"Posición fuera de rango: posicion={valor.posicion}, palabras={palabrasNecesarias}, len={reg.Length} (id_valor={valor.id_valor}, DL {estadoT.Datos.id_datalogger})");
+                                        continue;
+                                    }
+
+                                    if (esFloat32)
+                                    {
+                                        ushort hi = reg[baseIndex];
+                                        ushort lo = reg[baseIndex + 1];
+                                        float f = ToFloat(hi, lo, parametros.Endian);
+                                        valor.ValorActual = (double)f;
                                         continue;
                                     }
 
                                     switch (valor.id_tipovalor)
                                     {
                                         case 1:
-                                            if (registroIdx < reg.Length)
-                                            {
-                                                valor.ValorActual = reg[registroIdx];
-                                            }
-                                            else
-                                            {
-                                                valor.ValorActual = null;
-                                                logger.LogWarn($"Índice fuera de rango para entero: registroIdx={registroIdx}, largo={reg.Length}");
-                                            }
-                                            registroIdx++;
-                                            bitEnRegistro = 0;
+                                            valor.ValorActual = reg[baseIndex];
                                             break;
 
                                         case 2:
-                                            if (registroIdx < reg.Length)
-                                            {
-                                                short signedValue = unchecked((short)reg[registroIdx]);
-                                                valor.ValorActual = Math.Round(signedValue / 10.0, 1);
-                                            }
-                                            else
-                                            {
-                                                valor.ValorActual = null;
-                                                logger.LogWarn($"Índice fuera de rango para decimal: registroIdx={registroIdx}, largo={reg.Length}");
-                                            }
-                                            registroIdx++;
-                                            bitEnRegistro = 0;
-                                            break;
-
-                                        case 5:
-                                            if (registroIdx < reg.Length)
-                                            {
-                                                valor.ValorActual = ((reg[registroIdx] & (1 << bitEnRegistro)) != 0);
-                                            }
-                                            else
-                                            {
-                                                valor.ValorActual = null;
-                                                logger.LogWarn($"Índice fuera de rango para bit: registroIdx={registroIdx}, largo={reg.Length}");
-                                            }
-                                            bitEnRegistro++;
-                                            if (bitEnRegistro == 16)
-                                            {
-                                                registroIdx++;
-                                                bitEnRegistro = 0;
-                                            }
+                                            short signedValue = unchecked((short)reg[baseIndex]);
+                                            valor.ValorActual = Math.Round(signedValue / 10.0, 1);
                                             break;
 
                                         default:
                                             valor.ValorActual = null;
-                                            logger.LogWarn($"Tipo de valor no soportado: id_tipovalor={valor.id_tipovalor}, posicion={valor.posicion}");
+                                            logger.LogWarn($"Tipo de valor no soportado: id_tipovalor={valor.id_tipovalor}, posicion={valor.posicion} (DL {estadoT.Datos.id_datalogger})");
                                             break;
                                     }
                                 }
