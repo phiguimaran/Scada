@@ -11,6 +11,7 @@ namespace Balanza
         public short inicio { get; set; }
         public short bitsdatalogger { get; set; }
         public int intervalo_lectura { get; set; }
+        public byte Unit { get; set; } = 1;
 
         // NUEVAS PROPIEDADES para la lógica centralizada de cambios
         public object ValorCrudoActual { get; set; }
