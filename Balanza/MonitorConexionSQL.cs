@@ -46,7 +46,7 @@ namespace Balanza
                         intentos = 0;
 
                         string sql = @"
-SELECT D.id_datalogger, D.ip, D.cantvalores, D.id_modolectura, D.inicio, D.bits AS bitsdatalogger, D.intervalo_lectura,
+SELECT D.id_datalogger, D.ip, D.unit, D.cantvalores, D.id_modolectura, D.inicio, D.bits AS bitsdatalogger, D.intervalo_lectura,
        V.id_valor, V.posicion, T.id_tipovalor, T.bits AS bitsvalor
 FROM dataloggers D WITH (NOLOCK)
 JOIN valores V WITH (NOLOCK) ON D.id_datalogger = V.id_datalogger
@@ -58,16 +58,19 @@ WHERE D.activo = 1
                         cmd.Parameters.AddWithValue("@TipoLecturaFilter", this.tipoLecturaFilter);
 
                         await using var dr = await cmd.ExecuteReaderAsync(token);
+                        int ordUnit = dr.GetOrdinal("unit");
                         var dict = new Dictionary<int, TareaDatalogger>();
                         while (await dr.ReadAsync(token))
                         {
                             int idDL = Convert.ToInt32(dr["id_datalogger"]);
                             if (!dict.ContainsKey(idDL))
                             {
+                                byte unit = dr.IsDBNull(ordUnit) ? (byte)1 : Convert.ToByte(dr.GetValue(ordUnit));
                                 var tarea = new TareaDatalogger
                                 {
                                     id_datalogger = idDL,
                                     ip = dr["ip"].ToString(),
+                                    Unit = unit,
                                     cantvalores = Convert.ToInt16(dr["cantvalores"]),
                                     id_modolectura = Convert.ToInt16(dr["id_modolectura"]),
                                     inicio = Convert.ToInt16(dr["inicio"]),
@@ -238,8 +241,12 @@ WHERE D.activo = 1
                             master = ModbusIpMaster.CreateIp(tcpClient);
                         }
 
+                        ushort count = (ushort)Math.Max(1, estadoT.Datos.bitsdatalogger / 16);
+                        logger?.LogDebug("Leyendo Modbus Unit={Unit} Addr={Addr} Count={Count}", estadoT.Datos.Unit, estadoT.Datos.inicio, count);
+
                         object valorCrudoLeido = LeerValorCrudo(
                             master,
+                            estadoT.Datos.Unit,
                             modoLectura: estadoT.Datos.id_modolectura,
                             offset: estadoT.Datos.inicio,
                             cantidadBits: estadoT.Datos.bitsdatalogger
@@ -394,6 +401,7 @@ WHERE D.activo = 1
         }
         private static object LeerValorCrudo(
             ModbusIpMaster master,
+            byte unit,
             short modoLectura,
             short offset,
             short cantidadBits)
@@ -403,9 +411,9 @@ WHERE D.activo = 1
 
             return modoLectura switch
             {
-                1 => master.ReadHoldingRegisters(1, addr, count),
-                2 => master.ReadInputRegisters(1, addr, count),
-                _ => master.ReadHoldingRegisters(1, addr, count),
+                1 => master.ReadHoldingRegisters(unit, addr, count),
+                2 => master.ReadInputRegisters(unit, addr, count),
+                _ => master.ReadHoldingRegisters(unit, addr, count),
             };
         }
 
